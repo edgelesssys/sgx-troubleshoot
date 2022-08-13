@@ -1,0 +1,9 @@
+enclave {
+    from "openenclave/edl/core.edl" import *;
+    from "openenclave/edl/syscall.edl" import *;
+    from "platform.edl" import *;
+
+    trusted {
+        public int enclave_helloworld();
+    };
+};
