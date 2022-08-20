@@ -10,7 +10,7 @@ if [ -z "${PCCS_URL}" ] && [ "$(cat /sys/devices/virtual/dmi/id/chassis_asset_ta
 fi
 
 if [ -n "${PCCS_URL}" ]; then
-	apt-get install -qq libsgx-dcap-default-qpl-dev
+	apt-get install -qq libsgx-dcap-default-qpl
 	echo "PCCS_URL: ${PCCS_URL}"
 	echo "PCCS_URL=${PCCS_URL}\nUSE_SECURE_CERT=FALSE" > /etc/sgx_default_qcnl.conf
 else

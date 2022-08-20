@@ -1,0 +1,88 @@
+diff --git a/common/sgx/collateral.c b/common/sgx/collateral.c
+index 1c308b78a..7417a0191 100644
+--- a/common/sgx/collateral.c
++++ b/common/sgx/collateral.c
+@@ -346,6 +346,8 @@ oe_result_t oe_validate_revocation_list(
+             if (der_data_size == 0 || der_data == NULL)
+                 OE_RAISE(OE_INVALID_PARAMETER);
+ 
++            if (der_data[der_data_size - 1] == 0) der_data_size -= 1;
++
+             // Check if the CRL is composed of only hex digits
+             for (size_t l = 0; l < der_data_size; l++)
+             {
+@@ -367,7 +369,7 @@ oe_result_t oe_validate_revocation_list(
+                 OE_CHECK_MSG(
+                     _hex_to_raw(
+                         (const char*)sgx_endorsements->items[i].data,
+-                        sgx_endorsements->items[i].size,
++                        2 * der_data_size,
+                         der_data,
+                         der_data_size),
+                     "Failed to convert to DER. %s",
+diff --git a/host/sgx/linux/sgxquoteproviderloader.c b/host/sgx/linux/sgxquoteproviderloader.c
+index 07644ba64..7abf24d39 100644
+--- a/host/sgx/linux/sgxquoteproviderloader.c
++++ b/host/sgx/linux/sgxquoteproviderloader.c
+@@ -27,9 +27,12 @@ void oe_load_quote_provider()
+         OE_TRACE_INFO("oe_load_quote_provider libdcap_quoteprov.so\n");
+         provider.handle =
+             dlopen("libdcap_quoteprov.so", RTLD_LAZY | RTLD_LOCAL);
++
++        if (!provider.handle) provider.handle = dlopen("libdcap_quoteprov.so.1", RTLD_LAZY | RTLD_LOCAL);
++
+         if (provider.handle != 0)
+         {
+-            if (oe_get_current_logging_level() >= OE_LOG_LEVEL_INFO)
++            if (oe_get_current_logging_level() >= OE_LOG_LEVEL_ERROR)
+             {
+                 if (oe_sgx_set_quote_provider_logger(oe_quote_provider_log) ==
+                     OE_OK)
+diff --git a/host/sgx/sgxquote.c b/host/sgx/sgxquote.c
+index 6a8cebf47..648145e87 100644
+--- a/host/sgx/sgxquote.c
++++ b/host/sgx/sgxquote.c
+@@ -111,7 +111,7 @@ static quote3_error_t (*_sgx_qv_verify_quote)(
+ 
+ #include <dlfcn.h>
+ 
+-#define SGX_DCAP_QL_NAME "libsgx_dcap_ql.so"
++#define SGX_DCAP_QL_NAME "libsgx_dcap_ql.so.1"
+ #define SGX_DCAP_QVL_NAME "libsgx_dcap_quoteverify.so"
+ 
+ // Use best practices
+diff --git a/host/sgx/sgxquoteprovider.c b/host/sgx/sgxquoteprovider.c
+index 6ea4692ed..2ea919e3d 100644
+--- a/host/sgx/sgxquoteprovider.c
++++ b/host/sgx/sgxquoteprovider.c
+@@ -27,14 +27,22 @@ extern oe_sgx_quote_provider_t provider;
+ 
+ void oe_quote_provider_log(sgx_ql_log_level_t level, const char* message)
+ {
+-    const char* level_string = level == 0 ? "ERROR" : "INFO";
+-    char formatted[1024];
+-
+-    snprintf(formatted, sizeof(formatted), "[%s]: %s\n", level_string, message);
+-
+-    formatted[sizeof(formatted) - 1] = 0;
+-
+-    OE_TRACE_INFO("dcap_quoteprov: %s", formatted);
++    char formatted[OE_LOG_MESSAGE_LEN_MAX] = {0};
++    oe_log_level_t oe_log_level[] = {
++        OE_LOG_LEVEL_ERROR,
++        OE_LOG_LEVEL_INFO,
++        OE_LOG_LEVEL_INFO,
++        OE_LOG_LEVEL_NONE};
++    const char* dcap_level_strings[] = {"ERROR", "", "INFO", "NONE"};
++    if (level >= 3 || level < SGX_QL_LOG_ERROR)
++        level = SGX_QL_LOG_INFO;
++    snprintf(
++        formatted,
++        sizeof(formatted),
++        "dcap_quoteprov: [%s]: %s\n",
++        dcap_level_strings[level],
++        message);
++    OE_TRACE(oe_log_level[level], "%s", formatted);
+ }
+ 
+ oe_result_t oe_initialize_quote_provider()

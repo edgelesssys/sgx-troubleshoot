@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/tls"
 	_ "embed"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"os/user"
 	"path/filepath"
 	"regexp"
@@ -413,13 +415,17 @@ func runEnclave(enclave []byte) runResult {
 		return runResult{err: err}
 	}
 
-	cmd := exec.Command("stdbuf", "-oL", "./"+filenameHost, filenameEnclave)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	cmd := exec.CommandContext(ctx, "stdbuf", "-oL", "./"+filenameHost, filenameEnclave) // TODO
 	cmd.Dir = dir
 	return runCmd(cmd)
 }
 
 func runDocker(enclaveFilename string) runResult {
-	cmd := exec.Command("docker", "run", "--rm", "-t", "-v/var/run/aesmd:/var/run/aesmd")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-t", "-v/var/run/aesmd:/var/run/aesmd")
 	for _, d := range []string{"/dev/sgx_enclave", "/dev/sgx_provision", "/dev/isgx"} {
 		if st, err := os.Lstat(d); err == nil && st.Mode()&os.ModeDevice != 0 {
 			cmd.Args = append(cmd.Args, "--device", d)
@@ -431,7 +437,21 @@ func runDocker(enclaveFilename string) runResult {
 
 func runCmd(cmd *exec.Cmd) runResult {
 	res := runResult{exitCode: 1, tcbStatus: tcbstatus.Unknown}
-	out, err := cmd.CombinedOutput()
+
+	var out []byte
+	var err error
+
+	if *verbose {
+		var buf bytes.Buffer
+		cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
+		cmd.Stderr = io.MultiWriter(os.Stdout, &buf)
+		fmt.Println(strings.Join(cmd.Args, " "))
+		err = cmd.Run()
+		fmt.Println()
+		out = buf.Bytes()
+	} else {
+		out, err = cmd.CombinedOutput()
+	}
 	if err != nil {
 		var eerr *exec.ExitError
 		if !errors.As(err, &eerr) {
@@ -441,10 +461,6 @@ func runCmd(cmd *exec.Cmd) runResult {
 	}
 
 	res.exitCode = cmd.ProcessState.ExitCode()
-
-	if *verbose {
-		fmt.Printf("%v\n%s\n", strings.Join(cmd.Args, " "), out)
-	}
 
 	if match := regexp.MustCompile(`CPUSVN: (\w+)`).FindSubmatch(out); match != nil {
 		res.cpusvn = string(match[1])
